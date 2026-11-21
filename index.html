@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lampe — écrire sans retour arrière</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --lx:50vw; --ly:78vh; --ink:#2a2a31; }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;overflow:hidden;background:#c8c8d6;}
+  body{font-family:"Courier Prime","Courier New",ui-monospace,monospace;-webkit-font-smoothing:antialiased;}
+
+  /* wall + desk + warm lamp light, painted in one canvas */
+  #wall{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;display:block;filter:blur(2px);transform:scale(1.01);}
+
+  /* the page: ink sits on the lit wall (multiply keeps the warm tint under the light) */
+  #stage{
+    position:fixed;left:0;right:0;top:0;height:var(--ly);z-index:3;overflow:hidden;pointer-events:none;
+    mix-blend-mode:multiply;
+    -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat;
+    -webkit-mask-size:100vw 100vh; mask-size:100vw 100vh;
+    -webkit-mask-position:0 0; mask-position:0 0;
+  }
+  #page{
+    position:absolute;left:50%;top:0;
+    width:min(720px,86vw);margin-left:calc(min(720px,86vw)/-2);
+    font-size:clamp(13px,1.1vw + 6px,17px);line-height:1.62;letter-spacing:.01em;
+    color:var(--ink);white-space:pre-wrap;word-wrap:break-word;will-change:transform;
+  }
+  #caret{display:inline-block;width:0;height:1em;vertical-align:-.15em;}
+  @keyframes blink{50%{opacity:0;}}
+
+  /* the desk edge */
+  #horizon{position:fixed;left:0;right:0;top:calc(var(--ly) - 1.5px);height:3px;z-index:4;pointer-events:none;
+    background:#47475200;border-top:2.5px solid #3e3e48;box-shadow:0 1px 0 rgba(255,255,255,.45);}
+
+  /* the lamp: a small pill sitting on the line */
+  #lamp{position:fixed;left:var(--lx);top:var(--ly);z-index:5;pointer-events:none;}
+  #lamp svg{position:absolute;left:-30px;top:-38px;overflow:visible;transform:scale(1.3);transform-origin:30px 38px;}
+  #input{position:fixed;inset:0;width:100%;height:100%;z-index:7;opacity:.01;border:0;outline:0;resize:none;padding:0;margin:0;
+    background:transparent;color:transparent;caret-color:transparent;font-size:16px;-webkit-appearance:none;appearance:none;}
+
+  #notes{position:fixed;top:12px;right:16px;z-index:8;border:0;background:transparent;padding:6px 4px;cursor:pointer;
+    font:inherit;font-size:11px;color:rgba(30,30,42,.6);letter-spacing:.02em;}
+  #notes:hover{color:rgba(40,40,52,.85);}
+
+  #hint{position:fixed;left:0;right:0;bottom:4vh;z-index:6;text-align:center;font-size:12px;letter-spacing:.05em;
+    color:rgba(40,40,56,.45);transition:opacity 1.6s;pointer-events:none;}
+  #hint.off{opacity:0;}
+
+  #menu{position:fixed;inset:0;z-index:9;display:none;align-items:center;justify-content:center;
+    background:rgba(60,58,78,.35);backdrop-filter:blur(6px);}
+  #menu.on{display:flex;}
+  .card{background:#f3f2f7;color:#222228;border-radius:6px;padding:22px;width:min(330px,86vw);display:grid;gap:9px;
+    box-shadow:0 20px 50px rgba(40,38,60,.3);}
+  .card h2{margin:0;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}
+  .card p{margin:0 0 6px;font-size:12px;line-height:1.6;color:rgba(34,34,40,.6);}
+  .card button{font:inherit;font-size:13px;text-align:left;color:#222228;background:#fff;border:1px solid rgba(34,34,40,.18);
+    border-radius:4px;padding:10px 12px;cursor:pointer;}
+  .card button:hover{background:#faf8f2;}
+  .card button.danger{color:#8a2626;}
+</style>
+</head>
+<body>
+  <canvas id="wall"></canvas>
+  <div id="stage"><div id="page"><span id="txt"></span><span id="caret"></span><span id="after"></span></div></div>
+  <div id="horizon"></div>
+  <div id="lamp">
+    <svg width="60" height="50" viewBox="0 0 60 50" aria-hidden="true">
+      <defs>
+        <linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6f5fa"/><stop offset="1" stop-color="#d6d5e0"/></linearGradient>
+        <radialGradient id="bulb"><stop offset="0" stop-color="#fffbe6"/><stop offset=".5" stop-color="#ffefb8" stop-opacity=".8"/><stop offset="1" stop-color="#ffe9a8" stop-opacity="0"/></radialGradient>
+      </defs>
+      <!-- glow of the bulb inside the shade -->
+      <!-- shade: a shallow bowl open to the top -->
+      <path d="M17 8 L43 8 L38.5 13.5 Q30 15.5 21.5 13.5 Z" fill="#2e2e38"/>
+      <rect x="17" y="7" width="26" height="2" rx="1" fill="#fff6d6"/>
+      <!-- post -->
+      <rect x="29" y="14" width="2" height="18" fill="#2e2e38"/>
+      <!-- base: the pill from the video, sitting on the line -->
+      <rect x="7" y="30" width="46" height="16" rx="8" fill="url(#pg)" stroke="rgba(60,60,80,.25)" stroke-width="1"/>
+      <circle cx="26" cy="38" r="1.9" fill="#fffbe9"/>
+      <circle cx="34" cy="38" r="1.9" fill="#56566a"/>
+    </svg>
+  </div>
+
+  <textarea id="input" autocapitalize="sentences" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Zone d'écriture"></textarea>
+  <button id="notes" aria-label="Menu">Writing notes ✎</button>
+  <div id="hint">touche l'écran et écris</div>
+
+  <div id="menu">
+    <div class="card">
+      <h2>Writing notes</h2>
+      <p id="count"></p>
+      <button id="copy">Copier le texte</button>
+      <button id="fresh" class="danger">Nouvelle page (efface tout)</button>
+      <button id="close">Continuer à écrire</button>
+    </div>
+  </div>
+
+<script>
+(function(){
+  var KEY="lampe-page-v3";
+  var input=document.getElementById("input"), txt=document.getElementById("txt"), caret=document.getElementById("caret"),
+      page=document.getElementById("page"), after=document.getElementById("after"), stage=document.getElementById("stage"), hint=document.getElementById("hint"),
+      menu=document.getElementById("menu"), count=document.getElementById("count"), root=document.documentElement;
+  var wall=document.getElementById("wall"), ctx=wall.getContext("2d");
+  var maskC=document.createElement("canvas"), mctx=maskC.getContext("2d"), lastMask="";
+  var SHADE=39;   // px from the line up to the shade's opening: the light starts here
+  var text="", menuOpen=false, lampX=0, lineY=0, SCALE=1/4;
+
+  try{ text=localStorage.getItem(KEY)||""; }catch(e){}
+  input.value=text;
+  function save(){ try{ localStorage.setItem(KEY,text); }catch(e){} }
+
+  // ---- the light ----
+  // One point light at the shade's opening. For every point of the wall:
+  //   distance falloff  A = 1 / (1 + (d/d0)^2)            (real lamps fade with distance)
+  //   direction         F = 0.30 + 0.70 * cos(theta)^2     (the shade throws most light straight up)
+  //   shade cut-off     nothing below the rim, soft penumbra
+  // The same value lights the wall AND sets how visible the ink is. No light, no text.
+  var imgW=null, imgM=null;
+  function smooth(e0,e1,x){ var t=Math.max(0,Math.min(1,(x-e0)/(e1-e0))); return t*t*(3-2*t); }
+  function paint(){
+    var W=Math.max(2,Math.round(innerWidth*SCALE)), H=Math.max(2,Math.round(innerHeight*SCALE));
+    if(wall.width!==W||wall.height!==H){ wall.width=W; wall.height=H; maskC.width=W; maskC.height=H; imgW=null; }
+    if(!imgW){ imgW=ctx.createImageData(W,H); imgM=mctx.createImageData(W,H); }
+    var s=SCALE, lx=lampX*s, ly=lineY*s, ay=(lineY-SHADE)*s;
+    var d0=Math.max(H*.27, Math.min(W*.24, H*.42));
+    var rim=Math.cos(87*Math.PI/180);            // shade rim: light stops ~6° above horizontal
+    var pw=imgW.data, pm=imgM.data, cx=W*.45, cy=H*.45, vr=Math.max(W,H)*.85;
+    for(var y=0;y<H;y++){
+      for(var x=0;x<W;x++){
+        var i=(y*W+x)*4, I=0;
+        var vx=x-cx, vy=y-cy, vig=1-.22*Math.min(1,(vx*vx+vy*vy)/(vr*vr))*1.6;  // gentle room vignette
+        if(y<ly){
+          var dx=x-lx, dy=ay-y, d=Math.sqrt(dx*dx+dy*dy)+.001;
+          var c=dy/d;                                  // cos(theta), theta measured from straight up
+          var cut=smooth(rim-.06, rim+.10, c);         // the shade's penumbra
+          var A=1/(1+(d/d0)*(d/d0));
+          var F=.30+.70*c*c;
+          I=Math.min(1.25, 1.75*A*F*cut);
+          // wall colour: unlit lavender grey -> pale pinkish white -> warm cream at the core
+          var t=Math.min(1,I), w=t*t;
+          var r=(120+(250-120)*t)*(1-w)+(255)*w, g=(119+(240-119)*t)*(1-w)+(244)*w, b=(140+(244-140)*t)*(1-w)+(206)*w;
+          pw[i]=r*vig; pw[i+1]=g*vig; pw[i+2]=b*vig; pw[i+3]=255;
+          pm[i]=pm[i+1]=pm[i+2]=255; pm[i+3]=255*smooth(.14,.62,I);
+        } else {
+          // the desk: in the shade's shadow
+          var k=(y-ly)/(H-ly);
+          pw[i]=(132-22*k)*vig; pw[i+1]=(133-22*k)*vig; pw[i+2]=(152-20*k)*vig; pw[i+3]=255;
+          pm[i+3]=0;
+        }
+      }
+    }
+    ctx.putImageData(imgW,0,0);
+    mctx.putImageData(imgM,0,0);
+    var url="url("+maskC.toDataURL("image/png")+")";
+    if(url!==lastMask){ stage.style.webkitMaskImage=url; stage.style.maskImage=url; lastMask=url; }
+  }
+
+  // ---- layout ----
+  function render(){
+    var pos=Math.min(text.length, input.selectionEnd==null?text.length:input.selectionEnd);
+    txt.textContent=text.slice(0,pos);
+    after.textContent=text.slice(pos);
+    var hY=lineY;
+    page.style.transform="translateY(0px)";
+    var cr=caret.getBoundingClientRect(), pr=page.getBoundingClientRect();
+    var gap=SHADE+26;
+    page.style.transform="translateY("+(hY-gap-(cr.bottom-pr.top))+"px)";
+    var cr2=caret.getBoundingClientRect();
+    lampX=Math.min(innerWidth-30, Math.max(30, cr2.left+2));
+    root.style.setProperty("--lx", lampX+"px");
+    paint();
+  }
+  function layout(){
+    lineY=Math.round(innerHeight*0.78);
+    root.style.setProperty("--ly", lineY+"px");
+    render();
+  }
+
+  // ---- typing: every key works ----
+  function sync(){
+    text=input.value;
+    save(); render(); hint.classList.add("off");
+  }
+  input.addEventListener("input",sync);
+  // ---- line-aware shortcuts, based on the lines you SEE (the real field is invisible) ----
+  // vertical centre of one displayed character (robust to fonts/emoji of different heights)
+  function charMid(i){
+    var pos=txt.textContent.length, node, off;
+    if(i<pos){ node=txt.firstChild; off=i; } else { node=after.firstChild; off=i-pos; }
+    if(!node) return null;
+    var end=Math.min(node.length, off+1);
+    var c=node.data.charCodeAt(off);
+    if(c>=0xD800&&c<=0xDBFF&&end<node.length) end++;          // keep emoji (surrogate pairs) whole
+    var r=document.createRange(); r.setStart(node,off); r.setEnd(node,end);
+    var rc=r.getClientRects(); if(!rc.length) return null;
+    var q=rc[rc.length-1]; return (q.top+q.bottom)/2;
+  }
+  // displayed line that contains character refIdx -> [start, end)
+  function lineOf(refIdx){
+    var lh=parseFloat(getComputedStyle(page).lineHeight)||24, tol=lh*0.45;
+    var ref=charMid(refIdx); if(ref===null) return [refIdx,refIdx+1];
+    var st=refIdx, en=refIdx+1, t;
+    while(st>0 && text[st-1]!=="\n"){ t=charMid(st-1); if(t!==null && Math.abs(t-ref)>tol) break; st--; }
+    while(en<text.length && text[en]!=="\n"){ t=charMid(en); if(t!==null && Math.abs(t-ref)>tol) break; en++; }
+    return [st,en];
+  }
+  function visualLine(p){
+    if(p<text.length && text[p]!=="\n") return lineOf(p);
+    if(p>0 && text[p-1]!=="\n") return lineOf(p-1);
+    return [p,p];
+  }
+  function removeRange(a,b){
+    if(a>=b) return;
+    input.setSelectionRange(a,b);
+    var ok=false; try{ ok=document.execCommand("delete"); }catch(e){}
+    if(!ok){ input.setRangeText("",a,b,"start"); }
+    sync();
+  }
+  input.addEventListener("keydown",function(e){
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); toggleMenu(); return; }
+    if(!e.metaKey || e.altKey || e.ctrlKey) return;
+    var a=input.selectionStart, b=input.selectionEnd;
+    if(e.key==="Backspace"){
+      e.preventDefault();
+      if(a!==b){ removeRange(a,b); return; }
+      if(b===0) return;
+      var st=visualLine(b)[0];
+      if(st>=b){
+        // already at the start of a line: a hard break goes, otherwise the whole line above
+        st = text[b-1]==="\n" ? b-1 : lineOf(b-1)[0];
+      }
+      removeRange(st, b);
+    } else if(e.key==="Delete"){
+      e.preventDefault();
+      if(a!==b){ removeRange(a,b); return; }
+      if(b>=text.length) return;
+      var en=text[b]==="\n" ? b+1 : lineOf(b)[1];
+      removeRange(b, en);
+    } else if(e.key==="ArrowLeft" && !e.shiftKey){
+      e.preventDefault(); var L3=visualLine(b); input.setSelectionRange(L3[0],L3[0]); render();
+    } else if(e.key==="ArrowRight" && !e.shiftKey){
+      e.preventDefault(); var L4=visualLine(b); input.setSelectionRange(L4[1],L4[1]); render();
+    }
+  });
+  // arrows, Home/End, selection: the lamp follows where you are
+  var raf=0;
+  function follow(){ if(raf) return; raf=requestAnimationFrame(function(){ raf=0; render(); }); }
+  document.addEventListener("selectionchange",follow);
+  input.addEventListener("keyup",follow);
+  // a click/tap lands on an invisible field: send the cursor back to the end, like a typewriter
+  input.addEventListener("pointerup",function(){ setTimeout(function(){ input.setSelectionRange(text.length,text.length); render(); },0); });
+
+  function focusInput(){ if(menuOpen) return; var p=input.selectionEnd; input.focus({preventScroll:true}); if(p==null) input.setSelectionRange(text.length,text.length); }
+  input.addEventListener("blur",function(){ if(!menuOpen) setTimeout(focusInput,50); });
+  window.addEventListener("focus",focusInput);
+  window.addEventListener("resize",layout);
+
+  // ---- menu ----
+  function toggleMenu(){
+    menuOpen=!menuOpen; menu.classList.toggle("on",menuOpen);
+    if(menuOpen){
+      var w=(text.trim().match(/\S+/g)||[]).length;
+      count.textContent=w+" mot"+(w>1?"s":"")+" · "+text.length+" caractères";
+      input.blur();
+    } else focusInput();
+  }
+  document.getElementById("notes").addEventListener("click",toggleMenu);
+  document.getElementById("close").addEventListener("click",toggleMenu);
+  document.getElementById("copy").addEventListener("click",function(){
+    var b=this;
+    function ok(){ b.textContent="Copié ✓"; setTimeout(function(){ b.textContent="Copier le texte"; },1500); }
+    function fb(){ var ta=document.createElement("textarea"); ta.value=text; document.body.appendChild(ta); ta.select();
+      try{ document.execCommand("copy"); ok(); }catch(e){} document.body.removeChild(ta); }
+    try{ navigator.clipboard.writeText(text).then(ok,fb); }catch(e){ fb(); }
+  });
+  document.getElementById("fresh").addEventListener("click",function(){
+    var b=this;
+    if(b.dataset.armed!=="1"){ b.dataset.armed="1"; b.textContent="Cliquer encore pour confirmer";
+      setTimeout(function(){ b.dataset.armed=""; b.textContent="Nouvelle page (efface tout)"; },2500); return; }
+    text=""; input.value=""; save(); render(); toggleMenu(); b.dataset.armed=""; b.textContent="Nouvelle page (efface tout)";
+  });
+  menu.addEventListener("pointerdown",function(e){ e.stopPropagation(); });
+  document.addEventListener("keydown",function(e){ if(menuOpen && e.key==="Escape"){ e.preventDefault(); toggleMenu(); } });
+
+  if(document.fonts&&document.fonts.ready) document.fonts.ready.then(layout);
+  layout();
+  if(text) hint.classList.add("off");
+  focusInput();
+})();
+</script>
+</body>
+</html>
