@@ -14,15 +14,14 @@
   body{font-family:"Courier Prime","Courier New",ui-monospace,monospace;-webkit-font-smoothing:antialiased;}
 
   /* wall + desk + warm lamp light, painted in one canvas */
-  #wall{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;display:block;filter:blur(2px);transform:scale(1.01);}
+  #wall{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;display:block;}
+  /* the veil: wall-coloured, opaque where there is no light -> hides the ink there */
+  #veil{position:fixed;inset:0;width:100vw;height:100vh;z-index:4;display:block;pointer-events:none;}
 
   /* the page: ink sits on the lit wall (multiply keeps the warm tint under the light) */
   #stage{
     position:fixed;left:0;right:0;top:0;height:var(--ly);z-index:3;overflow:hidden;pointer-events:none;
-    mix-blend-mode:multiply;
-    -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat;
-    -webkit-mask-size:100vw 100vh; mask-size:100vw 100vh;
-    -webkit-mask-position:0 0; mask-position:0 0;
+
   }
   #page{
     position:absolute;left:50%;top:0;
@@ -34,11 +33,11 @@
   @keyframes blink{50%{opacity:0;}}
 
   /* the desk edge */
-  #horizon{position:fixed;left:0;right:0;top:calc(var(--ly) - 1.5px);height:3px;z-index:4;pointer-events:none;
+  #horizon{position:fixed;left:0;right:0;top:calc(var(--ly) - 1.5px);height:3px;z-index:5;pointer-events:none;
     background:#47475200;border-top:2.5px solid #3e3e48;box-shadow:0 1px 0 rgba(255,255,255,.45);}
 
   /* the lamp: a small pill sitting on the line */
-  #lamp{position:fixed;left:var(--lx);top:var(--ly);z-index:5;pointer-events:none;}
+  #lamp{position:fixed;left:var(--lx);top:var(--ly);z-index:6;pointer-events:none;}
   #lamp svg{position:absolute;left:-30px;top:-38px;overflow:visible;transform:scale(1.3);transform-origin:30px 38px;}
   #input{position:fixed;inset:0;width:100%;height:100%;z-index:7;opacity:.01;border:0;outline:0;resize:none;padding:0;margin:0;
     background:transparent;color:transparent;caret-color:transparent;font-size:16px;-webkit-appearance:none;appearance:none;}
@@ -51,22 +50,27 @@
     color:rgba(40,40,56,.45);transition:opacity 1.6s;pointer-events:none;}
   #hint.off{opacity:0;}
 
+  /* the menu: the room goes dark, the opposite of the lit page */
   #menu{position:fixed;inset:0;z-index:9;display:none;align-items:center;justify-content:center;
-    background:rgba(60,58,78,.35);backdrop-filter:blur(6px);}
+    background:rgba(10,9,18,.62);backdrop-filter:blur(7px);}
   #menu.on{display:flex;}
-  .card{background:#f3f2f7;color:#222228;border-radius:6px;padding:22px;width:min(330px,86vw);display:grid;gap:9px;
-    box-shadow:0 20px 50px rgba(40,38,60,.3);}
-  .card h2{margin:0;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}
-  .card p{margin:0 0 6px;font-size:12px;line-height:1.6;color:rgba(34,34,40,.6);}
-  .card button{font:inherit;font-size:13px;text-align:left;color:#222228;background:#fff;border:1px solid rgba(34,34,40,.18);
-    border-radius:4px;padding:10px 12px;cursor:pointer;}
-  .card button:hover{background:#faf8f2;}
-  .card button.danger{color:#8a2626;}
+  .card{background:#17161e;color:#e8e5ee;border-radius:8px;padding:22px;width:min(330px,86vw);display:grid;gap:9px;
+    border:1px solid rgba(255,255,255,.06);box-shadow:0 24px 60px rgba(0,0,0,.55);}
+  .card h2{margin:0;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#f1eef6;}
+  .card p{margin:0 0 6px;font-size:12px;line-height:1.6;color:rgba(232,229,238,.5);}
+  .card button{font:inherit;font-size:13px;text-align:left;color:#e8e5ee;background:#201f29;
+    border:1px solid rgba(255,255,255,.08);border-radius:5px;padding:10px 12px;cursor:pointer;
+    transition:background .2s,border-color .2s,color .2s;}
+  /* hover: a little of the lamp's warm light */
+  .card button:hover,.card button:focus-visible{background:#2a2622;border-color:rgba(255,226,170,.28);color:#fff3da;outline:none;}
+  .card button.danger{color:#e9968a;}
+  .card button.danger:hover,.card button.danger:focus-visible{background:#2c1f1f;border-color:rgba(233,150,138,.35);color:#ffb3a8;}
 </style>
 </head>
 <body>
   <canvas id="wall"></canvas>
   <div id="stage"><div id="page"><span id="txt"></span><span id="caret"></span><span id="after"></span></div></div>
+  <canvas id="veil"></canvas>
   <div id="horizon"></div>
   <div id="lamp">
     <svg width="60" height="50" viewBox="0 0 60 50" aria-hidden="true">
@@ -108,7 +112,7 @@
       page=document.getElementById("page"), after=document.getElementById("after"), stage=document.getElementById("stage"), hint=document.getElementById("hint"),
       menu=document.getElementById("menu"), count=document.getElementById("count"), root=document.documentElement;
   var wall=document.getElementById("wall"), ctx=wall.getContext("2d");
-  var maskC=document.createElement("canvas"), mctx=maskC.getContext("2d"), lastMask="";
+  var veil=document.getElementById("veil"), vctx=veil.getContext("2d");
   var SHADE=39;   // px from the line up to the shade's opening: the light starts here
   var text="", menuOpen=false, lampX=0, lineY=0, SCALE=1/4;
 
@@ -122,14 +126,20 @@
   //   direction         F = 0.30 + 0.70 * cos(theta)^2     (the shade throws most light straight up)
   //   shade cut-off     nothing below the rim, soft penumbra
   // The same value lights the wall AND sets how visible the ink is. No light, no text.
-  var imgW=null, imgM=null;
+  var imgW=null, imgM=null, noise=null;
   function smooth(e0,e1,x){ var t=Math.max(0,Math.min(1,(x-e0)/(e1-e0))); return t*t*(3-2*t); }
   function paint(){
-    var W=Math.max(2,Math.round(innerWidth*SCALE)), H=Math.max(2,Math.round(innerHeight*SCALE));
-    if(wall.width!==W||wall.height!==H){ wall.width=W; wall.height=H; maskC.width=W; maskC.height=H; imgW=null; }
-    if(!imgW){ imgW=ctx.createImageData(W,H); imgM=mctx.createImageData(W,H); }
+    // the light is smooth and blurred anyway: cap the map at 240 px wide (fast on big/retina screens)
+    var W=Math.max(2,Math.min(560,Math.round(innerWidth/2.5))), H=Math.max(2,Math.round(W*innerHeight/innerWidth));
+    SCALE=W/innerWidth;
+    if(wall.width!==W||wall.height!==H){ wall.width=W; wall.height=H; veil.width=W; veil.height=H; imgW=null; }
+    if(!imgW){
+      imgW=ctx.createImageData(W,H); imgM=vctx.createImageData(W,H);
+      // fixed fine grain (dithering): breaks colour banding in soft gradients, never flickers
+      noise=new Float32Array(W*H); for(var q=0;q<W*H;q++) noise[q]=(Math.random()+Math.random()-1)*1.6;
+    }
     var s=SCALE, lx=lampX*s, ly=lineY*s, ay=(lineY-SHADE)*s;
-    var d0=Math.max(H*.27, Math.min(W*.24, H*.42));
+    var d0=Math.max(H*.27, Math.min(W*.24, H*.42))*(.82+.30*glow);   // brighter lamp reaches further
     var rim=Math.cos(87*Math.PI/180);            // shade rim: light stops ~6° above horizontal
     var pw=imgW.data, pm=imgM.data, cx=W*.45, cy=H*.45, vr=Math.max(W,H)*.85;
     for(var y=0;y<H;y++){
@@ -142,49 +152,84 @@
           var cut=smooth(rim-.06, rim+.10, c);         // the shade's penumbra
           var A=1/(1+(d/d0)*(d/d0));
           var F=.30+.70*c*c;
-          I=Math.min(1.25, 1.75*A*F*cut);
+          I=Math.min(1.3, 1.75*(glow/.8)*A*F*cut);
           // wall colour: unlit lavender grey -> pale pinkish white -> warm cream at the core
           var t=Math.min(1,I), w=t*t;
-          var r=(120+(250-120)*t)*(1-w)+(255)*w, g=(119+(240-119)*t)*(1-w)+(244)*w, b=(140+(244-140)*t)*(1-w)+(206)*w;
-          pw[i]=r*vig; pw[i+1]=g*vig; pw[i+2]=b*vig; pw[i+3]=255;
-          pm[i]=pm[i+1]=pm[i+2]=255; pm[i+3]=255*smooth(.14,.62,I);
+          // warmth: at rest a golden cream; typing fast pushes it towards amber, like a flame catching
+          var hot=Math.max(0,Math.min(1,(glow-REST)/(MAX-REST)));
+          var mr=252, mg=230-8*hot, mb=198-16*hot;          // mid tones: warm peach (was pinkish white)
+          var cr=255, cg=234-14*hot, cb=180-32*hot;         // the core: cream -> amber
+          var r=(120+(mr-120)*t)*(1-w)+cr*w, g=(119+(mg-119)*t)*(1-w)+cg*w, b=(140+(mb-140)*t)*(1-w)+cb*w;
+          var nz=noise[i>>2];
+          pw[i]=r*vig+nz; pw[i+1]=g*vig+nz; pw[i+2]=b*vig+nz; pw[i+3]=255;
+          pm[i]=pw[i]; pm[i+1]=pw[i+1]; pm[i+2]=pw[i+2]; pm[i+3]=255*(1-smooth(.14,.62,I));
         } else {
           // the desk: in the shade's shadow
           var k=(y-ly)/(H-ly);
-          pw[i]=(132-22*k)*vig; pw[i+1]=(133-22*k)*vig; pw[i+2]=(152-20*k)*vig; pw[i+3]=255;
+          var nz2=noise[i>>2];
+          pw[i]=(132-22*k)*vig+nz2; pw[i+1]=(133-22*k)*vig+nz2; pw[i+2]=(152-20*k)*vig+nz2; pw[i+3]=255;
           pm[i+3]=0;
         }
       }
     }
     ctx.putImageData(imgW,0,0);
-    mctx.putImageData(imgM,0,0);
-    var url="url("+maskC.toDataURL("image/png")+")";
-    if(url!==lastMask){ stage.style.webkitMaskImage=url; stage.style.maskImage=url; lastMask=url; }
+    vctx.putImageData(imgM,0,0);
   }
 
   // ---- layout ----
+  // render() only computes WHERE the lamp and the page should be; tick() glides them there
+  var lampTarget=null, scrollTarget=0, scrollCur=null, snap=true;
   function render(){
     var pos=Math.min(text.length, input.selectionEnd==null?text.length:input.selectionEnd);
     txt.textContent=text.slice(0,pos);
     after.textContent=text.slice(pos);
-    var hY=lineY;
-    page.style.transform="translateY(0px)";
-    var cr=caret.getBoundingClientRect(), pr=page.getBoundingClientRect();
+    var cr=caret.getBoundingClientRect(), pr=page.getBoundingClientRect();   // both include the same transform
     var gap=SHADE+26;
-    page.style.transform="translateY("+(hY-gap-(cr.bottom-pr.top))+"px)";
-    var cr2=caret.getBoundingClientRect();
-    lampX=Math.min(innerWidth-30, Math.max(30, cr2.left+2));
+    scrollTarget=lineY-gap-(cr.bottom-pr.top);
+    lampTarget=Math.min(innerWidth-30, Math.max(30, cr.left+2));
+    if(snap || scrollCur===null){ snap=false; scrollCur=scrollTarget; lampX=lampTarget; applyPos(); paint(); }
+  }
+  function applyPos(){
+    page.style.transform="translateY("+scrollCur+"px)";
     root.style.setProperty("--lx", lampX+"px");
-    paint();
   }
   function layout(){
-    lineY=Math.round(innerHeight*0.78);
+    lineY=Math.round(innerHeight*0.78); snap=true;
     root.style.setProperty("--ly", lineY+"px");
     render();
   }
 
   // ---- typing: every key works ----
+  // ---- the lamp reacts to your typing ----
+  // speed = characters typed over the last few seconds; the light rises fast, falls slowly
+  var REST=.64, MAX=1.14, glow=REST, painted=-1, lastPaint=0, hits=[];
+  function typingTarget(now){
+    var win=2500;
+    while(hits.length && now-hits[0]>win) hits.shift();
+    var cps=hits.length/(win/1000);                         // characters per second
+    return REST+(MAX-REST)*smooth(.6, 6, cps);              // ~6 cps ≈ 70 words/min = full glow
+  }
+  function tick(now){
+    var target=typingTarget(now);
+    var k = target>glow ? .06 : .012;                       // fast up, slow down
+    glow+=(target-glow)*k;
+    // carriage: the lamp and the page glide to their new place (smooth on a line return)
+    var moved=false;
+    if(lampTarget!==null){
+      var dx=lampTarget-lampX, dy=scrollTarget-scrollCur;
+      var kx = Math.abs(dx)>60 ? .11 : .32;                 // long return: a soft glide; next letter: quick
+      if(Math.abs(dx)>.3){ lampX+=dx*kx; moved=true; } else if(dx!==0){ lampX=lampTarget; moved=true; }
+      if(Math.abs(dy)>.3){ scrollCur+=dy*.16; moved=true; } else if(dy!==0){ scrollCur=scrollTarget; moved=true; }
+      if(moved) applyPos();
+    }
+    if(moved || (Math.abs(glow-painted)>.004 && now-lastPaint>45)){ painted=glow; lastPaint=now; paint(); }
+    requestAnimationFrame(tick);
+  }
+  var prevLen=text.length;
   function sync(){
+    var added=input.value.length-prevLen;
+    if(added>0){ var now=performance.now(); for(var n=0;n<Math.min(added,3);n++) hits.push(now); }  // a paste counts as 3 keys at most
+    prevLen=input.value.length;
     text=input.value;
     save(); render(); hint.classList.add("off");
   }
@@ -291,6 +336,7 @@
 
   if(document.fonts&&document.fonts.ready) document.fonts.ready.then(layout);
   layout();
+  requestAnimationFrame(tick);
   if(text) hint.classList.add("off");
   focusInput();
 })();
